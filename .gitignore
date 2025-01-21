@@ -1,2 +1,25 @@
+# 数据文件
 data.db
+
+# 系统文件
 .DS_Store
+
+# 编译输出
+/wechat-reader
+/bin
+/dist
+
+# IDE 文件
+.idea/
+.vscode/
+
+# 依赖和缓存
+/vendor/
+*.exe
+*.test
+*.out
+*.log
+
+# 临时文件
+tmp/
+temp/
