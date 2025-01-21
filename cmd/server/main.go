@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"compress/gzip"
+	"os"
+	"path/filepath"
 	"wechat-reader/internal/service"
 	"wechat-reader/internal/storage"
 )
@@ -17,8 +19,14 @@ import (
 func main() {
 	ctx := context.Background()
 
+	// 获取当前工作目录
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// 初始化数据库连接
-	db, err := storage.NewDatabase(ctx, "/Users/zhangpengyun/wechat-reader/data.db")
+	db, err := storage.NewDatabase(ctx, filepath.Join(pwd, "data.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
