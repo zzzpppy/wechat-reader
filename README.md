@@ -13,7 +13,7 @@
 ## 技术栈
 
 - 后端：Go
-- 前端：原生 JavaScript + HTML + CSS
+- 前端：React + TypeScript
 - 数据库：SQLite
 
 ## 快速开始
@@ -21,29 +21,37 @@
 ### 环境要求
 
 - Go 1.16+
+- Node.js 16+
 - SQLite 3
 
 ### 安装
 
 1. 克隆项目
-
 ```bash
 git clone https://github.com/zzzpppy/wechat-reader
 cd wechat-reader
 ```
 
-2. 安装依赖
+2. 安装后端依赖
 ```bash
 go mod tidy
 ```
 
-3. 运行项目
+3. 安装前端依赖
+```bash
+cd web
+npm install
+```
+
+4. 运行项目
 ```bash
 go run cmd/server/main.go
+
+npm run dev
 ```
 
 4. 访问应用
-打开浏览器访问 http://localhost:8080
+打开浏览器访问 http://localhost:5174
 
 ## 使用说明
 1. 在输入框中粘贴微信公众号文章链接
@@ -64,10 +72,12 @@ wechat-reader/
 │   └── storage/
 │       └── database.go
 ├── web/
-│   ├── static/
-│   │   └── css/
-│   └── templates/
-│       └── index.html
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   └── App.tsx
+│   ├── package.json
+│   └── tsconfig.json
 └── README.md
  ```
 
@@ -80,3 +90,13 @@ MIT License
 
 ## 贡献指南
 欢迎提交 Issue 和 Pull Request
+
+
+
+主要更新：
+1. 技术栈中更新了前端为 React + TypeScript
+2. 环境要求中添加了 Node.js
+3. 安装步骤中添加了前端依赖安装
+4. 运行说明分为前端和后端两部分
+5. 访问端口改为 5174
+6. 项目结构更新为 React 项目结构
