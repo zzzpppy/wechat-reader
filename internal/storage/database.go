@@ -19,18 +19,19 @@ func NewDatabase(ctx context.Context, dbPath string) (*Database, error) {
 		return nil, err
 	}
 
-	// 修改这里，不要每次都删除表
+	// 创建表并添加 URL 唯一索引
 	_, err = db.ExecContext(ctx, `
         CREATE TABLE IF NOT EXISTS articles (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             author TEXT,
             content TEXT,
-            url TEXT,
+            url TEXT UNIQUE,
             topic TEXT,
             publish_time DATETIME,
             create_time DATETIME
-        )
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_url ON articles(url);
     `)
 	if err != nil {
 		return nil, err
@@ -52,7 +53,7 @@ func (d *Database) SaveArticles(ctx context.Context, articles []model.Article) e
 
 	stmt, err := tx.PrepareContext(ctx, `
         INSERT OR REPLACE INTO articles (id, title, author, content, url, topic, publish_time, create_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)
     `)
 	if err != nil {
 		return err
@@ -60,6 +61,11 @@ func (d *Database) SaveArticles(ctx context.Context, articles []model.Article) e
 	defer stmt.Close()
 
 	for _, article := range articles {
+		// 跳过没有 URL 的文章
+		if article.URL == "" {
+			continue
+		}
+
 		_, err = stmt.ExecContext(ctx,
 			article.ID,
 			article.Title,

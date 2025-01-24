@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,7 +44,8 @@ func (c *Crawler) FetchArticles(ctx context.Context, subscriptionURL string) ([]
 
 	// 设置必要的请求头
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x6309092b) XWEB/9053")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	// req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	req.Header.Set("Accept", "text/json")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Connection", "keep-alive")
@@ -116,6 +120,9 @@ func (c *Crawler) FetchArticles(ctx context.Context, subscriptionURL string) ([]
 		topic = "未分类" // 设置默认主题
 	}
 
+	msgid := ""
+	itemidx := 0
+
 	// 从 DOM 中提取文章列表
 	var articles []model.Article
 	if len(articles) == 0 {
@@ -134,6 +141,18 @@ func (c *Crawler) FetchArticles(ctx context.Context, subscriptionURL string) ([]
 				title = fmt.Sprintf("未命名文章_%d", i+1)
 			}
 			title = strings.TrimSpace(title)
+
+			// 获取 msgid、itemidx（如果有的话）
+			msgidT, exexists := s.Attr("data-msgid")
+			if !exexists {
+				msgid = ""
+			}
+			msgid = msgidT
+			itemidxT, exexists := s.Attr("data-itemidx")
+			if !exexists {
+				itemidx = 0
+			}
+			itemidx, _ = strconv.Atoi(itemidxT)
 
 			// 获取发布时间（如果有的话）
 			publishTime := time.Now() // 默认使用当前时间
@@ -184,12 +203,28 @@ func (c *Crawler) FetchArticles(ctx context.Context, subscriptionURL string) ([]
 		}
 	}
 
+	// 在获取完初始文章后，尝试获取更多文章
+	if len(articles) > 0 {
+		// 从 URL 中提取 topic_id
+		topicID := ""
+		if matches := regexp.MustCompile(`album_id=([^&]+)`).FindStringSubmatch(subscriptionURL); len(matches) > 1 {
+			topicID = matches[1]
+
+			// 获取更多文章
+			moreArticles, err := c.fetchMoreArticles(ctx, topicID, topic, msgid, itemidx)
+			if err != nil {
+				fmt.Printf("获取更多文章时出错: %v\n", err)
+			} else {
+				articles = append(articles, moreArticles...)
+			}
+		}
+	}
+
 	// 打印最终结果
 	fmt.Printf("总共解析到 %d 篇文章\n", len(articles))
 	for i, article := range articles {
 		fmt.Printf("文章 %d: %+v\n", i+1, article)
 	}
-
 	return articles, nil
 }
 
@@ -198,4 +233,138 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// 在 Crawler struct 定义后添加以下内容
+type WeixinResponse struct {
+	BaseResp struct {
+		Ret int `json:"ret"`
+	} `json:"base_resp"`
+	GetalbumResp struct {
+		ArticleList  []WeixinArticle `json:"article_list"`
+		ContinueFlag string          `json:"continue_flag"`
+	} `json:"getalbum_resp"`
+}
+
+type WeixinArticle struct {
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	CoverImg   string `json:"cover_img_1_1"`
+	CreateTime string `json:"create_time"`
+	Msgid      string `json:"msgid"`
+	Itemidx    string `json:"itemidx"`
+}
+
+func (c *Crawler) fetchMoreArticles(ctx context.Context, topicID string, topic string, msgid string, itemidex int) ([]model.Article, error) {
+	var allArticles []model.Article
+	processedURLs := make(map[string]bool)
+
+	nextMsgid := ""
+	nextItemidx := 0
+	if msgid != "" {
+		nextMsgid = msgid
+	}
+	if itemidex != 0 {
+		nextItemidx = itemidex
+	}
+	hasMore := true
+	batchSize := 10
+
+	for hasMore {
+		url := "https://mp.weixin.qq.com/mp/appmsgalbum"
+		params := map[string]string{
+			"action":   "getalbum",
+			"album_id": topicID,
+			"count":    fmt.Sprintf("%d", batchSize),
+			"f":        "json",
+		}
+
+		if nextMsgid != "" && nextItemidx > 0 {
+			params["begin_msgid"] = nextMsgid
+			params["begin_itemidx"] = fmt.Sprintf("%d", nextItemidx)
+		}
+
+		// 构建请求 URL
+		reqURL := url + "?"
+		for k, v := range params {
+			reqURL += k + "=" + v + "&"
+		}
+		reqURL = strings.TrimSuffix(reqURL, "&")
+
+		// 创建请求
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("创建请求失败: %v", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Referer", fmt.Sprintf("https://mp.weixin.qq.com/mp/appmsgalbum?action=getalbum&album_id=%s", topicID))
+
+		// 发送请求
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("请求失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// 解析响应
+		var result WeixinResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, fmt.Errorf("解析响应失败: %v", err)
+		}
+
+		if result.BaseResp.Ret != 0 {
+			return nil, fmt.Errorf("API返回错误码: %d", result.BaseResp.Ret)
+		}
+
+		newArticlesCount := 0
+		for _, wxArticle := range result.GetalbumResp.ArticleList {
+			if !processedURLs[wxArticle.URL] {
+				// 将字符串类型的创建时间转换为int64
+				createTimeInt, err := strconv.ParseInt(wxArticle.CreateTime, 10, 64)
+				if err != nil {
+					// 如果转换失败，使用当前时间作为发布时间
+					createTimeInt = time.Now().Unix()
+				}
+
+				article := model.Article{
+					ID:          fmt.Sprintf("article_%d_%d", time.Now().Unix(), len(allArticles)),
+					Title:       wxArticle.Title,
+					URL:         wxArticle.URL,
+					Topic:       topic,
+					PublishTime: time.Unix(createTimeInt, 0),
+					CreateTime:  time.Now(),
+				}
+				allArticles = append(allArticles, article)
+				processedURLs[wxArticle.URL] = true
+				newArticlesCount++
+			}
+		}
+
+		if newArticlesCount == 0 || len(result.GetalbumResp.ArticleList) == 0 {
+			break
+		}
+
+		// 更新下一次请求的参数
+		lastArticle := result.GetalbumResp.ArticleList[len(result.GetalbumResp.ArticleList)-1]
+		nextMsgid = lastArticle.Msgid
+		itemidx, err := strconv.Atoi(lastArticle.Itemidx)
+		if err != nil {
+			nextItemidx = 0
+		} else {
+			nextItemidx = itemidx
+		}
+
+		cf, err := strconv.ParseInt(result.GetalbumResp.ContinueFlag, 10, 64)
+		if err != nil {
+		}
+		if cf == 0 {
+			hasMore = false
+		}
+
+		// 添加延时避免被封
+		time.Sleep(2 * time.Second)
+	}
+
+	return allArticles, nil
 }
