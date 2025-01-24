@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -62,7 +63,7 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
+		fmt.Println("articles:", articles)
 		// 保存到数据库
 		if err := db.SaveArticles(ctx, articles); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -241,8 +242,28 @@ func main() {
 		content = strings.ReplaceAll(content, `href="https://mp.weixin.qq.com/`, `href="/wx-mp/`)
 
 		// 添加基础样式和错误处理
+		// 添加新窗口打开按钮
+		originalURL := targetURL
+		openButton := fmt.Sprintf(`
+			<div style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
+				<a href="%s" target="_blank" style="
+					display: inline-block;
+					padding: 10px 20px;
+					background-color: #07C160;
+					color: white;
+					border-radius: 5px;
+					text-decoration: none;
+					font-size: 14px;
+					box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+					transition: background-color 0.3s;
+				">
+					新窗口打开
+				</a>
+			</div>
+		`, originalURL)
+
 		content = strings.ReplaceAll(content, `<head>`, `<head>
-			<base target="_self">
+			<base target="_blank">
 			<style>
 				img { max-width: 100%; height: auto; }
 				img[src=""] { display: none; }
@@ -255,6 +276,7 @@ func main() {
 					return false;
 				};
 			</script>`)
+		content = strings.ReplaceAll(content, `<body>`, `<body>`+openButton)
 
 		// 设置响应头
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -310,10 +332,21 @@ func proxyRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
 	}
 
 	// 添加微信相关请求头
-	req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.20(0x18001435) NetType/WIFI Language/zh_CN")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x6309092b) XWEB/9053")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Referer", "https://mp.weixin.qq.com/")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-User", "?1")
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -326,6 +359,30 @@ func proxyRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
 		w.Header()[k] = v
 	}
 
-	// 复制响应体
-	io.Copy(w, resp.Body)
+	// 处理响应内容
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'; img-src * data:; default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.weixin.qq.com https://*.qpic.cn")
+	w.Header().Del("Content-Encoding") // 移除 gzip 编码头
+
+	// 返回处理后的内容
+	w.Write(body)
 }

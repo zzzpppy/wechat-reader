@@ -63,35 +63,50 @@
         }
 
         // 获取新文章
-        function fetchArticles() {
-            const url = document.getElementById('urlInput').value;
+        async function fetchArticles() {
+            const urlInput = document.getElementById('urlInput');
+            const url = urlInput.value.trim();
             
             if (!url) {
-                alert('请输入URL');
+                alert('请输入文章链接');
                 return;
             }
 
-            fetch('/api/fetch', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ url: url }),
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // 重新加载所有数据
-                    initializeData();
-                    alert('文章获取成功！');
-                } else {
-                    alert('获取文章失败: ' + data.message);
+            try {
+                const response = await fetch('/api/fetch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Accept-Language': 'zh-CN,zh;q=0.9'
+                    },
+                    body: JSON.stringify({ url: url }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('获取文章失败: ' + error.message);
-            });
+
+                const result = await response.json();
+                if (result.success) {
+                    // 清空输入框
+                    urlInput.value = '';
+                    
+                    // 更新文章列表
+                    currentArticles = result.data;
+                    await updateTopicList();
+                    showTopicArticles('全部');
+                } else {
+                    throw new Error(result.message || '获取文章失败');
+                }
+            } catch (error) {
+                console.error('获取文章时发生错误:', error);
+                if (error.message.includes('HTTP error!')) {
+                    alert('服务器连接失败，请稍后重试');
+                } else {
+                    alert(error.message || '获取文章失败，请检查网络连接');
+                }
+            }
         }
 
         // 加载主题列表
@@ -104,6 +119,9 @@
             })
             .catch(error => {
                 console.error('加载主题失败:', error);
+                // 确保即使加载失败也初始化为默认值
+                currentTopics = ['全部'];
+                updateTopicList();
             });
         }
 
@@ -119,6 +137,11 @@
             })
             .catch(error => {
                 console.error('加载文章失败:', error);
+                // 确保即使加载失败也初始化为默认值
+                currentArticles = [];
+                updateTopicList();
+                showTopicArticles('全部');
+                updateArticleCount();
             });
         }
 
