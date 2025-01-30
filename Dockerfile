@@ -50,6 +50,13 @@ COPY --from=frontend-builder /build/dist /usr/share/nginx/html
 # 复制 Nginx 配置文件
 COPY nginx.conf /etc/nginx/http.d/default.conf
 
+# 暴露端口
+EXPOSE 80
+
+# 启动Nginx和后端服务
+CMD ["sh", "-c", "nginx && ./wechat-reader"]
+COPY nginx.conf /etc/nginx/http.d/default.conf
+
 # 设置时区
 ENV TZ=Asia/Shanghai
 
