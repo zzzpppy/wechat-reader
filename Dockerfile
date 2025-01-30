@@ -54,7 +54,7 @@ COPY nginx.conf /etc/nginx/http.d/default.conf
 EXPOSE 80
 
 # 启动Nginx和后端服务
-CMD ["sh", "-c", "nginx && ./wechat-reader"]
+# 删除这个CMD指令，因为在文件末尾已经有一个CMD指令了
 COPY nginx.conf /etc/nginx/http.d/default.conf
 
 # 设置时区

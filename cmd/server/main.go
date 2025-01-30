@@ -306,15 +306,12 @@ func main() {
 	})
 
 	// 静态文件服务
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	http.Handle("/", http.FileServer(http.Dir("/usr/share/nginx/html")))
 
-	// 首页
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, "web/templates/index.html")
+	// 健康检查
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
 	})
 
 	log.Println("Server starting on :8080")
